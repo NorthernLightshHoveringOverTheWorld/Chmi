@@ -5,7 +5,6 @@ from scipy.signal import hilbert
 
 
 
-# ==================== 1. ГЕНЕРАЦИЯ СИГНАЛА ====================
 def generate_ultrasound_signal(fs=100e6, duration=20e-6, f_center=5e6, defect_position=None):
     t = np.linspace(0, duration, int(fs * duration))
 
@@ -22,7 +21,6 @@ def generate_ultrasound_signal(fs=100e6, duration=20e-6, f_center=5e6, defect_po
     return {'t': t, 'x': x, 'envelope': envelope, 'fs': fs}
 
 
-# ==================== 2. CWT ====================
 def compute_cwt(signal_data):
     t = signal_data['t']
     x = signal_data['x']
@@ -45,7 +43,7 @@ def compute_cwt(signal_data):
     }
 
 
-# ==================== 3. ВЫВОД КООРДИНАТ ====================
+
 def print_coordinates(signal_data, cwt_data, max_points=20):
     t = signal_data['t']
     x = signal_data['x']
@@ -60,19 +58,19 @@ def print_coordinates(signal_data, cwt_data, max_points=20):
         print(f"{t[i]:.6e}, {inst_freq[i]:.6f}")
 
 
-# ==================== 4. СОХРАНЕНИЕ ====================
+
 def save_coordinates(signal_data, cwt_data):
     t = signal_data['t']
     x = signal_data['x']
     inst_freq = cwt_data['instantaneous_freq']
 
-    # TXT
+
     np.savetxt("signal_coords.txt", np.column_stack((t, x)),
                header="t x", comments='')
     np.savetxt("cwt_coords.txt", np.column_stack((t, inst_freq)),
                header="t f_inst", comments='')
 
-    # CSV
+
     np.savetxt("signal_coords.csv", np.column_stack((t, x)),
                delimiter=",", header="t,x", comments='')
     np.savetxt("cwt_coords.csv", np.column_stack((t, inst_freq)),
@@ -83,7 +81,7 @@ def save_coordinates(signal_data, cwt_data):
     print("cwt_coords.txt / .csv")
 
 
-# ==================== 5. ВИЗУАЛИЗАЦИЯ ====================
+
 def plot(signal_data, cwt_data):
     t = signal_data['t']
     x = signal_data['x']
@@ -103,7 +101,7 @@ def plot(signal_data, cwt_data):
     plt.show()
 
 
-# ==================== MAIN ====================
+
 def main():
     signal_data = generate_ultrasound_signal(defect_position=12e-6)
     cwt_data = compute_cwt(signal_data)
