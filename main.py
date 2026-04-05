@@ -3,7 +3,13 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 from plot_fft_spectrum import plot_fft_spectrum
-from plot_wavelet_spectrum import plot_cwt_spectrogram, print_cwt_preview, save_cwt
+from plot_wavelet_spectrum import (
+    compute_cwt,
+    main as run_plot_wavelet_spectrum,
+    plot_cwt_spectrogram,
+    print_cwt_preview,
+    save_cwt,
+)
 
 if __name__ == "__main__":
     project_dir = Path(__file__).resolve().parent
@@ -16,9 +22,8 @@ if __name__ == "__main__":
             fig, (ax_fft, ax_cwt) = plt.subplots(2, 1, figsize=(11, 8), constrained_layout=True)
 
             freqs, fft_data = plot_fft_spectrum(file, ax=ax_fft, show=False)
-            t, wfreqs, amp, Wx = plot_cwt_spectrogram(
-                file, max_seconds=1.0, nv=8, downsample=4, ax=ax_cwt, show=False
-            )
+            _fs, t, wfreqs, Wx = compute_cwt(file, max_seconds=1.0, nv=8, downsample=4)
+            plot_cwt_spectrogram(t=t, freqs_hz=wfreqs, Wx=Wx, ax=ax_cwt, show=False)
 
             print_cwt_preview(t, wfreqs, Wx)
             save_cwt(t, wfreqs, Wx, prefix="sounds_10KHz")
@@ -34,3 +39,5 @@ if __name__ == "__main__":
             print(f"Файл {file} не найден!")
         except Exception as e:
             print(f"Ошибка при обработке файла {file}: {e}")
+
+    run_plot_wavelet_spectrum()

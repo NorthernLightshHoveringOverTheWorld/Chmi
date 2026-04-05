@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
@@ -64,39 +66,72 @@ def save_cwt(
 
 
 def plot_cwt_spectrogram(
-    file_path: str,
+    file_path: str | None = None,
     *,
+    t: np.ndarray | None = None,
+    freqs_hz: np.ndarray | None = None,
+    Wx: np.ndarray | None = None,
     fmin_hz: float = 500.0,
     fmax_hz: float = 20000.0,
     nv: int = 8,
     max_seconds: float | None = 1.0,
     downsample: int = 4,
+    freq_index: int | None = None,
     ax=None,
     show: bool = True,
 ):
-    _fs, t, freqs_hz, Wx = compute_cwt(
-        file_path,
-        fmin_hz=fmin_hz,
-        fmax_hz=fmax_hz,
-        nv=nv,
-        max_seconds=max_seconds,
-        downsample=downsample,
-    )
-    amp = np.abs(Wx)
+    """
+    Действительная часть CWT с вейвлетом Морле по выбранной строке частоты —
+    для реального входного сигнала (не дельта-импульс).
+    """
+    if Wx is None:
+        if file_path is None:
+            raise ValueError("Нужен file_path или готовые t, freqs_hz, Wx из compute_cwt.")
+        _fs, t, freqs_hz, Wx = compute_cwt(
+            file_path,
+            fmin_hz=fmin_hz,
+            fmax_hz=fmax_hz,
+            nv=nv,
+            max_seconds=max_seconds,
+            downsample=downsample,
+        )
+    else:
+        if t is None or freqs_hz is None:
+            raise ValueError("Вместе с Wx передайте t и freqs_hz.")
+
+    fi = (Wx.shape[0] // 2) if freq_index is None else int(freq_index)
+    fi = max(0, min(fi, Wx.shape[0] - 1))
+
+    y_vals = np.real(Wx[fi, :])
+    denom = np.max(np.abs(y_vals))
+    if denom > 0:
+        y_vals = y_vals / denom
 
     if ax is None:
         _, ax = plt.subplots(figsize=(10, 5))
 
-    m = ax.pcolormesh(t, freqs_hz, amp, shading="auto")
-    ax.set_yscale("log")
-    ax.set_ylabel("Частота (Гц)")
+    ax.plot(t, y_vals, color="#0072BD", linewidth=1.5)
+    f_hz = float(freqs_hz[fi])
+    ax.set_title(f"Morlet CWT (Re), f ≈ {f_hz:.1f} Гц", fontweight="bold")
     ax.set_xlabel("Время (с)")
-    ax.set_title(f"CWT (вейвлет-спектр) - {file_path}")
-    plt.colorbar(m, ax=ax, label="Амплитуда")
+    ax.set_ylabel("Норм. амплитуда")
+    ax.set_ylim(-1, 1)
+    ax.grid(True, which="both", linestyle="-", linewidth=0.5)
+    ax.axhline(0, color="black", linewidth=0.8)
+    ax.axvline(0, color="black", linewidth=0.8)
 
     if show:
         backend = matplotlib.get_backend().lower()
         if "agg" not in backend:
             plt.show()
 
-    return t, freqs_hz, amp, Wx
+    return t, y_vals
+
+
+def main():
+    default_wav = Path(__file__).resolve().parent / "sounds" / "10KHz.wav"
+    plot_cwt_spectrogram(str(default_wav), show=True)
+
+
+if __name__ == "__main__":
+    main()
