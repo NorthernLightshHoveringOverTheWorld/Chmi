@@ -53,3 +53,76 @@ def plot_fft_spectrum(file_path, *, ax=None, show: bool = True):
             plt.show()
 
     return freqs, fft_data
+
+
+def plot_stft_spectrogram(
+    file_path: str,
+    *,
+    ax=None,
+    show: bool = True,
+    nperseg: int = 4096,
+    noverlap: int = 3072,
+    fmin_hz: float = 500.0,
+    fmax_hz: float = 20000.0,
+    db: bool = True,
+):
+    """
+    Оконное БПФ (STFT) со спектрограммой.
+    Возвращает (t_sec, freqs_hz, S) где S = magnitude (или dB, если db=True).
+    """
+    fs, x = read_wav(file_path, mono=True, normalize=True)
+    x = np.asarray(x, dtype=np.float32)
+
+    nperseg = int(nperseg)
+    noverlap = int(noverlap)
+    if nperseg <= 0:
+        raise ValueError("nperseg must be > 0")
+    if noverlap < 0 or noverlap >= nperseg:
+        raise ValueError("noverlap must be in [0, nperseg)")
+
+    hop = nperseg - noverlap
+    if x.size < nperseg:
+        pad = nperseg - x.size
+        x = np.pad(x, (0, pad))
+
+    n_frames = 1 + (x.size - nperseg) // hop
+    window = np.hanning(nperseg).astype(np.float32)
+
+    # Frame and FFT.
+    frames = np.lib.stride_tricks.as_strided(
+        x,
+        shape=(n_frames, nperseg),
+        strides=(x.strides[0] * hop, x.strides[0]),
+        writeable=False,
+    )
+    X = np.fft.rfft(frames * window[None, :], axis=1)
+    mag = np.abs(X).T  # (freq, time)
+
+    freqs = np.fft.rfftfreq(nperseg, d=1.0 / fs)
+    t = (np.arange(n_frames) * hop + (nperseg / 2.0)) / fs
+
+    band = (freqs >= fmin_hz) & (freqs <= fmax_hz)
+    freqs_b = freqs[band]
+    mag_b = mag[band, :]
+
+    if db:
+        S = 20.0 * np.log10(np.maximum(mag_b, 1e-12))
+    else:
+        S = mag_b
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(10, 5))
+
+    m = ax.pcolormesh(t, freqs_b, S, shading="auto")
+    ax.set_ylabel("Частота (Гц)")
+    ax.set_xlabel("Время (с)")
+    ax.set_title(f"STFT спектрограмма ({int(fmin_hz)}–{int(fmax_hz)} Гц) - {file_path}")
+    ax.grid(False)
+    plt.colorbar(m, ax=ax, label=("dB" if db else "Амплитуда"))
+
+    if show:
+        backend = matplotlib.get_backend().lower()
+        if "agg" not in backend:
+            plt.show()
+
+    return t, freqs_b, S

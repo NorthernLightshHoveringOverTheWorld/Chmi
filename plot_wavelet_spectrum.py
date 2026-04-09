@@ -35,7 +35,7 @@ def compute_cwt(
     scales = scales[order]
     freqs_hz = freqs_hz[order]
 
-    wavelet = Wavelet("morlet", N=len(x))
+    wavelet = Wavelet(('morlet', {'mu': 2*3.14}), N=len(x))
     Wx, _ = cwt(x, wavelet=wavelet, scales=scales)
     t = np.arange(len(x)) / fs
     return fs, t, freqs_hz, Wx
@@ -65,6 +65,39 @@ def save_cwt(
     np.savetxt(f"{prefix}_amp.csv", np.abs(Wx), delimiter=",")
 
 
+def save_time_frequency_coords(
+    t: np.ndarray,
+    freqs_hz: np.ndarray,
+    Wx: np.ndarray,
+    *,
+    path: str,
+):
+    """
+    Сохраняет 2 колонки: время (с) и частота (Гц) для каждого момента времени.
+    Частота выбирается как argmax по |Wx| (гребень скалограммы).
+    """
+    amp = np.abs(Wx)
+    ridge_idx = np.argmax(amp, axis=0)  # shape: (time,)
+    ridge_freqs = freqs_hz[ridge_idx]
+    data = np.column_stack([t, ridge_freqs])
+    np.savetxt(path, data, fmt="%.10g", delimiter="\t", header="t_s\tfreq_hz")
+
+
+def save_time_frequency_coords_csv(
+    t: np.ndarray,
+    freqs_hz: np.ndarray,
+    Wx: np.ndarray,
+    *,
+    path: str,
+):
+    """То же, что save_time_frequency_coords, но в CSV (delimiter=','), 2 колонки."""
+    amp = np.abs(Wx)
+    ridge_idx = np.argmax(amp, axis=0)  # shape: (time,)
+    ridge_freqs = freqs_hz[ridge_idx]
+    data = np.column_stack([t, ridge_freqs])
+    np.savetxt(path, data, fmt="%.10g", delimiter=",", header="t_s,freq_hz")
+
+
 def plot_cwt_spectrogram(
     file_path: str | None = None,
     *,
@@ -74,7 +107,7 @@ def plot_cwt_spectrogram(
     fmin_hz: float = 500.0,
     fmax_hz: float = 20000.0,
     nv: int = 8,
-    max_seconds: float | None = 1.0,
+    max_seconds: float | None = 2.0,
     downsample: int = 4,
     freq_index: int | None = None,
     ax=None,
@@ -126,6 +159,61 @@ def plot_cwt_spectrogram(
             plt.show()
 
     return t, y_vals
+
+
+def plot_cwt_scalogram(
+    file_path: str | None = None,
+    *,
+    t: np.ndarray | None = None,
+    freqs_hz: np.ndarray | None = None,
+    Wx: np.ndarray | None = None,
+    fmin_hz: float = 500.0,
+    fmax_hz: float = 20000.0,
+    nv: int = 8,
+    max_seconds: float | None = None,
+    downsample: int = 4,
+    ax=None,
+    show: bool = True,
+    log_freq: bool = True,
+):
+    """
+    Скалограмма Morlet CWT: |Wx| по времени и частоте (оконный по сути TF-анализ).
+    Возвращает (t_sec, freqs_hz, amp).
+    """
+    if Wx is None:
+        if file_path is None:
+            raise ValueError("Нужен file_path или готовые t, freqs_hz, Wx из compute_cwt.")
+        _fs, t, freqs_hz, Wx = compute_cwt(
+            file_path,
+            fmin_hz=fmin_hz,
+            fmax_hz=fmax_hz,
+            nv=nv,
+            max_seconds=max_seconds,
+            downsample=downsample,
+        )
+    else:
+        if t is None or freqs_hz is None:
+            raise ValueError("Вместе с Wx передайте t и freqs_hz.")
+
+    amp = np.abs(Wx)
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(10, 5))
+
+    m = ax.pcolormesh(t, freqs_hz, amp, shading="auto")
+    if log_freq:
+        ax.set_yscale("log")
+    ax.set_ylabel("Частота (Гц)")
+    ax.set_xlabel("Время (с)")
+    ax.set_title("Morlet CWT скалограмма |Wx|", fontweight="bold")
+    plt.colorbar(m, ax=ax, label="Амплитуда")
+
+    if show:
+        backend = matplotlib.get_backend().lower()
+        if "agg" not in backend:
+            plt.show()
+
+    return t, freqs_hz, amp
 
 
 def main():

@@ -1,4 +1,5 @@
 import numpy as np
+from pathlib import Path
 from scipy.io import wavfile
 
 
@@ -10,6 +11,12 @@ def read_wav(file_path: str, *, mono: bool = True, normalize: bool = True):
     - If mono=True and file is multi-channel, takes channel 0.
     - If normalize=True, scales to [-1, 1] (best-effort for integer PCM).
     """
+    p = Path(file_path)
+    if not p.exists():
+        raise FileNotFoundError(file_path)
+    if p.stat().st_size == 0:
+        raise ValueError(f"WAV файл пустой: {file_path}")
+
     fs, data = wavfile.read(file_path)
 
     if mono and getattr(data, "ndim", 1) > 1:
