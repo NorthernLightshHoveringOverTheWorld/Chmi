@@ -5,6 +5,7 @@ from tkinter import filedialog, messagebox, simpledialog
 
 import numpy as np
 import matplotlib
+import matplotlib.pyplot as plt
 
 # Must be set before importing pyplot/creating figures for Tk embedding.
 matplotlib.use("TkAgg")
@@ -60,6 +61,9 @@ class App(tk.Tk):
         self.ax = self.fig.add_subplot(111)
         self.canvas = FigureCanvasTkAgg(self.fig, master=self)
         self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        self.canvas.mpl_connect("button_press_event", self._on_spectrogram_click)
+
+        self.current_spec: dict | None = None
 
         self._draw_placeholder()
 
@@ -67,7 +71,52 @@ class App(tk.Tk):
         self.ax.clear()
         self.ax.set_title("Загрузите WAV и нажмите кнопку преобразования")
         self.ax.set_axis_off()
+        self.current_spec = None
         self.canvas.draw_idle()
+
+    def _on_spectrogram_click(self, event):
+        if event.inaxes != self.ax or self.current_spec is None:
+            return
+        if event.button not in (1, 3):
+            return
+
+        t = self.current_spec["t"]
+        freqs_hz = self.current_spec["freqs_hz"]
+        spec = self.current_spec["spec"]
+        title = self.current_spec["title"]
+        y_label = self.current_spec["y_label"]
+
+        if event.button == 1:  # левый: боковой срез (спектр во время t)
+            if event.xdata is None:
+                return
+            ti = int(np.argmin(np.abs(t - event.xdata)))
+            t_sel = float(t[ti])
+            slice_vals = spec[:, ti]
+
+            fig, ax = plt.subplots(figsize=(6, 6))
+            ax.plot(slice_vals, freqs_hz, color="#1f77b4", linewidth=1.5)
+            ax.set_title(f"Боковой срез: t={t_sel:.6f} c\n{title}")
+            ax.set_xlabel(y_label)
+            ax.set_ylabel("Частота (Гц)")
+            ax.grid(True, alpha=0.3)
+            ax.set_ylim(freqs_hz[0], freqs_hz[-1])
+        else:  # правый: продольный срез (о времени на частоте f)
+            if event.ydata is None:
+                return
+            fi = int(np.argmin(np.abs(freqs_hz - event.ydata)))
+            f_sel = float(freqs_hz[fi])
+            slice_vals = spec[fi, :]
+
+            fig, ax = plt.subplots(figsize=(8, 4))
+            ax.plot(t, slice_vals, color="#1f77b4", linewidth=1.5)
+            ax.set_title(f"Продольный срез: f={f_sel:.2f} Гц\n{title}")
+            ax.set_xlabel("Время (с)")
+            ax.set_ylabel(y_label)
+            ax.grid(True, alpha=0.3)
+            ax.set_xlim(float(t[0]), float(t[-1]))
+
+        fig.tight_layout()
+        fig.show()
 
     def _require_file(self) -> str:
         if not self.loaded_path:
@@ -149,7 +198,23 @@ class App(tk.Tk):
         try:
             file_path = self._require_file()
             self.ax.clear()
-            plot_stft_spectrogram(file_path, ax=self.ax, show=False)
+            t, freqs_hz, S = plot_stft_spectrogram(
+                file_path,
+                ax=self.ax,
+                show=False,
+                nperseg=2048,
+                noverlap=1536,
+                fmin_hz=0.0,
+                fmax_hz=96000.0,
+                db=True,
+            )
+            self.current_spec = {
+                "t": t,
+                "freqs_hz": freqs_hz,
+                "spec": S,
+                "title": "STFT",
+                "y_label": "Уровень (dB)",
+            }
             self.fig.tight_layout()
             self.canvas.draw_idle()
             self._save_current_figure("stft")
@@ -160,11 +225,27 @@ class App(tk.Tk):
         try:
             file_path = self._require_file()
             self.ax.clear()
-            _fs, t, freqs_hz, Wx = compute_cwt(file_path, max_seconds=None, nv=8, downsample=4)
+            _fs, t, freqs_hz, Wx = compute_cwt(
+                file_path,
+                fmin_hz=100.0,
+                fmax_hz=96000.0,
+                max_seconds=None,
+                nv=12,
+                downsample=1,
+                target_fs=192000,
+            )
+            amp = np.abs(Wx)
 
             target_hz = float(self.ent_target_freq.get().strip().replace(",", "."))
             plot_cwt_scalogram(t=t, freqs_hz=freqs_hz, Wx=Wx, ax=self.ax, show=False)
             self.ax.axhline(target_hz, color="white", linewidth=1.0, alpha=0.8)
+            self.current_spec = {
+                "t": t,
+                "freqs_hz": freqs_hz,
+                "spec": amp,
+                "title": "Morlet CWT",
+                "y_label": "Амплитуда",
+            }
             self.fig.tight_layout()
             self.canvas.draw_idle()
 

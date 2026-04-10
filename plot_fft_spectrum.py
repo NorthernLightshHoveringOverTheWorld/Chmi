@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from audio_io import read_wav
 import matplotlib
+from pathlib import Path
 
 
 def plot_fft_spectrum(file_path, *, ax=None, show: bool = True):
@@ -62,8 +63,8 @@ def plot_stft_spectrogram(
     show: bool = True,
     nperseg: int = 4096,
     noverlap: int = 3072,
-    fmin_hz: float = 500.0,
-    fmax_hz: float = 20000.0,
+    fmin_hz: float = 0.0,
+    fmax_hz: float = 96000.0,
     db: bool = True,
 ):
     """
@@ -126,3 +127,55 @@ def plot_stft_spectrogram(
             plt.show()
 
     return t, freqs_b, S
+
+
+def save_stft(
+    t: np.ndarray,
+    freqs_hz: np.ndarray,
+    S: np.ndarray,
+    *,
+    prefix: str = "stft",
+):
+    """Saves STFT arrays for further post-processing."""
+    np.save(f"{prefix}_t.npy", t)
+    np.save(f"{prefix}_freqs_hz.npy", freqs_hz)
+    np.save(f"{prefix}_S.npy", S)
+    np.savetxt(f"{prefix}_amp.csv", S, delimiter=",")
+
+
+def save_time_frequency_coords(
+    t: np.ndarray,
+    freqs_hz: np.ndarray,
+    S: np.ndarray,
+    *,
+    path: str,
+):
+    """Save 2 columns: time (s) and dominant STFT frequency (Hz)."""
+    if S.ndim != 2:
+        raise ValueError("S must be 2D (freq, time).")
+    ridge_idx = np.argmax(S, axis=0)
+    ridge_freqs = freqs_hz[ridge_idx]
+    data = np.column_stack([t, ridge_freqs])
+    np.savetxt(path, data, fmt="%.10g", delimiter="\t", header="t_s\tfreq_hz")
+
+
+def save_time_frequency_coords_csv(
+    t: np.ndarray,
+    freqs_hz: np.ndarray,
+    S: np.ndarray,
+    *,
+    path: str,
+):
+    """Same as save_time_frequency_coords, but CSV format."""
+    if S.ndim != 2:
+        raise ValueError("S must be 2D (freq, time).")
+    ridge_idx = np.argmax(S, axis=0)
+    ridge_freqs = freqs_hz[ridge_idx]
+    data = np.column_stack([t, ridge_freqs])
+    np.savetxt(path, data, fmt="%.10g", delimiter=",", header="t_s,freq_hz")
+
+
+def save_stft_figure(fig, wav_path: str, project_dir: str):
+    stem = Path(wav_path).stem
+    out_path = Path(project_dir) / f"{stem}_fourier_spectrogram.png"
+    fig.savefig(out_path, dpi=150)
