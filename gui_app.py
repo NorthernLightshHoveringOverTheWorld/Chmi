@@ -17,7 +17,9 @@ from plot_fft_spectrum import plot_stft_spectrogram  # noqa: E402
 from plot_wavelet_spectrum import (  # noqa: E402
     compute_cwt,
     plot_cwt_scalogram,
+    plot_longitudinal_slice_morlet_re,
     save_cwt,
+    save_longitudinal_slice_txt,
     save_time_frequency_coords,
     save_time_frequency_coords_csv,
 )
@@ -85,6 +87,7 @@ class App(tk.Tk):
         spec = self.current_spec["spec"]
         title = self.current_spec["title"]
         y_label = self.current_spec["y_label"]
+        Wx = self.current_spec.get("Wx")
 
         if event.button == 1:  # левый: боковой срез (спектр во время t)
             if event.xdata is None:
@@ -100,20 +103,43 @@ class App(tk.Tk):
             ax.set_ylabel("Частота (Гц)")
             ax.grid(True, alpha=0.3)
             ax.set_ylim(freqs_hz[0], freqs_hz[-1])
-        else:  # правый: продольный срез (о времени на частоте f)
+        else:  # правый: продольный срез Re(Wx) по времени (как test2 / форма Морле для дельты)
             if event.ydata is None:
                 return
             fi = int(np.argmin(np.abs(freqs_hz - event.ydata)))
             f_sel = float(freqs_hz[fi])
-            slice_vals = spec[fi, :]
 
             fig, ax = plt.subplots(figsize=(8, 4))
-            ax.plot(t, slice_vals, color="#1f77b4", linewidth=1.5)
-            ax.set_title(f"Продольный срез: f={f_sel:.2f} Гц\n{title}")
-            ax.set_xlabel("Время (с)")
-            ax.set_ylabel(y_label)
-            ax.grid(True, alpha=0.3)
-            ax.set_xlim(float(t[0]), float(t[-1]))
+            if Wx is not None and title == "Morlet CWT":
+                plot_longitudinal_slice_morlet_re(
+                    t,
+                    Wx[fi, :],
+                    f_hz=f_sel,
+                    ax=ax,
+                    show=False,
+                )
+                ax.set_title(
+                    f"Продольный срез: Re(Wx), f ≈ {f_sel:.1f} Гц\n({title})",
+                    fontweight="bold",
+                )
+                if self.loaded_path:
+                    stem = Path(self.loaded_path).stem
+                    safe_f = f"{f_sel:.0f}".replace(".", "p")
+                    out_txt = self.project_dir / f"{stem}_longitudinal_slice_f{safe_f}Hz.txt"
+                    save_longitudinal_slice_txt(
+                        t,
+                        Wx[fi, :],
+                        path=str(out_txt),
+                        f_hz=f_sel,
+                    )
+            else:
+                slice_vals = spec[fi, :]
+                ax.plot(t, slice_vals, color="#1f77b4", linewidth=1.5)
+                ax.set_title(f"Продольный срез: f={f_sel:.2f} Гц\n{title}")
+                ax.set_xlabel("Время (с)")
+                ax.set_ylabel(y_label)
+                ax.grid(True, alpha=0.3)
+                ax.set_xlim(float(t[0]), float(t[-1]))
 
         fig.tight_layout()
         fig.show()
@@ -243,6 +269,7 @@ class App(tk.Tk):
                 "t": t,
                 "freqs_hz": freqs_hz,
                 "spec": amp,
+                "Wx": Wx,
                 "title": "Morlet CWT",
                 "y_label": "Амплитуда",
             }

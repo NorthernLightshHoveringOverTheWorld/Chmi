@@ -12,13 +12,13 @@ def _next_pow2(n: int) -> int:
     return 1 if n <= 1 else 1 << (int(n - 1).bit_length())
 
 
-def _morlet_fft(freqs_fft_hz: np.ndarray, scale: float, w0: float = 6.0) -> np.ndarray:
+def _morlet_fft(freqs_fft_hz: np.ndarray, scale: float, fs: float, w0: float = 6.0) -> np.ndarray:
     """
-    Fourier-domain Morlet wavelet (approx. admissible for w0>=5).
-    Positive-frequency analytic variant for stable TF ridges.
+    Fourier-domain Morlet (аналитический). Шкала scale согласована с
+    scales = w0*fs/(2π f_center) при цифровой частоте ω_d = 2πf/fs (рад/отсчёт).
     """
-    omega = 2.0 * np.pi * freqs_fft_hz
-    psi_hat = np.exp(-0.5 * ((scale * omega - w0) ** 2))
+    omega_d = 2.0 * np.pi * freqs_fft_hz / fs
+    psi_hat = np.exp(-0.5 * ((scale * omega_d - w0) ** 2))
     psi_hat = psi_hat * np.sqrt(scale)
     psi_hat[freqs_fft_hz < 0] = 0.0
     return psi_hat
@@ -66,7 +66,7 @@ def compute_cwt(
 
     Wx = np.empty((len(scales), n), dtype=np.complex64)
     for i, s in enumerate(scales):
-        psi_hat = _morlet_fft(f_fft, s, w0=w0)
+        psi_hat = _morlet_fft(f_fft, s, fs=float(fs), w0=w0)
         conv = np.fft.ifft(X * np.conj(psi_hat))
         Wx[i, :] = conv[:n]
 
@@ -251,6 +251,134 @@ def plot_cwt_scalogram(
             plt.show()
 
     return t, freqs_hz, amp
+
+
+def _default_xlim_us_morlet_slice(
+    t: np.ndarray, f_hz: float | None
+) -> tuple[float, float]:
+    """
+    Окно по оси времени в мкс. ±4 мкс уместны при fs ~100 МГц (много отсчётов в окне).
+    При fs ~192 кГц шаг ~5.2 мкс: в ±4 мкс всего 1–2 точки — график вырождается в ломаную.
+    Берём max(±4 мкс, ~40 шагов дискретизации, ~1.5 периода несущей полосы).
+    """
+    dt = float(np.median(np.diff(t)))
+    if not np.isfinite(dt) or dt <= 0:
+        return (-4.0, 4.0)
+    by_samples = 40.0 * dt * 1e6
+    by_period = (1.5 * 1e6 / float(f_hz)) if (f_hz is not None and f_hz > 0) else 0.0
+    half_us = max(4.0, by_samples, by_period)
+    return (-half_us, half_us)
+
+
+def plot_longitudinal_slice_morlet_re(
+    t: np.ndarray,
+    wx_row: np.ndarray,
+    *,
+    f_hz: float | None = None,
+    ax=None,
+    t_center_s: float | None = None,
+    xlim_us: tuple[float, float] | None = None,
+    show: bool = True,
+):
+    """
+    Продольный срез одной полосы CWT: нормированная Re(Wx) во времени.
+    Для δ(t−t₀) форма — как материнский вейвлет Морле (как test2.py).
+    Ось — увеличение вокруг центра вейвлета (мкс/мс/с), не длительность всей записи.
+    Возвращает (t−t₀) в секундах, y_vals.
+    """
+    y_vals = np.real(np.asarray(wx_row, dtype=np.complex128))
+    denom = np.max(np.abs(y_vals))
+    if denom > 0:
+        y_vals = y_vals / denom
+
+    if t_center_s is None:
+        t0 = float(t[int(np.argmax(np.abs(y_vals)))])
+    else:
+        t0 = float(t_center_s)
+    t_rel_s = t - t0
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(8, 4))
+
+    if xlim_us is None:
+        xlim_us = _default_xlim_us_morlet_slice(t, f_hz)
+
+    half_w_s = max(abs(xlim_us[0]), abs(xlim_us[1])) * 1e-6
+    # Единицы оси: мкс/мс/с — не путать с длительностью всей записи (секунды звучания).
+    if half_w_s >= 0.1:
+        x_plot = t_rel_s
+        xlim_plot = (xlim_us[0] * 1e-6, xlim_us[1] * 1e-6)
+        x_unit = "с"
+    elif half_w_s >= 1e-3:
+        x_plot = t_rel_s * 1e3
+        xlim_plot = (xlim_us[0] * 1e-3, xlim_us[1] * 1e-3)
+        x_unit = "мс"
+    else:
+        x_plot = t_rel_s * 1e6
+        xlim_plot = (xlim_us[0], xlim_us[1])
+        x_unit = "мкс"
+
+    t_total = float(t[-1] - t[0])
+    ax.plot(x_plot, y_vals, color="#0072BD", linewidth=1.5, label="Morlet Wavelet (Re)")
+    title = "Morlet Wavelet"
+    if f_hz is not None:
+        title = f"{title}\nf ≈ {float(f_hz):.1f} Гц"
+    ax.set_title(title, fontweight="bold")
+    ax.set_xlabel(
+        f"Время относительно центра ({x_unit})\n"
+        f"фрагмент вокруг вейвлета; длительность всей записи {t_total:.3f} с",
+        fontsize=9,
+    )
+    ax.set_ylabel("Норм. амплитуда")
+    ax.set_xlim(xlim_plot)
+    ax.set_ylim(-1, 1)
+    ax.grid(True, which="both", linestyle="-", linewidth=0.5)
+    ax.axhline(0, color="black", linewidth=0.8)
+    ax.axvline(0, color="black", linewidth=0.8)
+    ax.legend(loc="upper right", fontsize=8)
+
+    if show:
+        backend = matplotlib.get_backend().lower()
+        if "agg" not in backend:
+            plt.show()
+
+    return t_rel_s, y_vals
+
+
+def save_longitudinal_slice_txt(
+    t: np.ndarray,
+    wx_row: np.ndarray,
+    *,
+    path: str,
+    f_hz: float | None = None,
+    t_center_s: float | None = None,
+):
+    """
+    Записывает продольный срез одной полосы CWT в TXT (табуляция).
+
+    Колонки: t_s, t_rel_us (мкс), Re_Wx. В начале — комментарии # с метаданными.
+    """
+    t = np.asarray(t, dtype=np.float64)
+    z = np.asarray(wx_row, dtype=np.complex128)
+    re = np.real(z)
+
+    if t_center_s is None:
+        t0 = float(t[int(np.argmax(np.abs(re)))])
+    else:
+        t0 = float(t_center_s)
+    t_rel_us = (t - t0) * 1e6
+
+    lines = [
+        f"# longitudinal_slice Morlet CWT",
+        f"# f_center_hz\t{f_hz if f_hz is not None else 'nan'}",
+        f"# t_center_s\t{t0:.12g}",
+        f"# duration_recording_s\t{float(t[-1] - t[0]):.12g}",
+        "# columns: t_s\tt_rel_us\tRe_Wx",
+    ]
+    data = np.column_stack([t, t_rel_us, re])
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+        np.savetxt(f, data, fmt="%.10g", delimiter="\t")
 
 
 def main():
