@@ -263,7 +263,7 @@ class App(tk.Tk):
             amp = np.abs(Wx)
 
             target_hz = float(self.ent_target_freq.get().strip().replace(",", "."))
-            plot_cwt_scalogram(t=t, freqs_hz=freqs_hz, Wx=Wx, ax=self.ax, show=False)
+            plot_cwt_scalogram(t=t, freqs_hz=freqs_hz, Wx=Wx, ax=self.ax, show=False, log_freq=True)
             self.ax.axhline(target_hz, color="white", linewidth=1.0, alpha=0.8)
             self.current_spec = {
                 "t": t,

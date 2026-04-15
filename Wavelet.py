@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from ssqueezepy import cwt, Wavelet
 from scipy.signal import hilbert
+from scale_config import load_scales_from_txt
 
 
 
@@ -27,7 +28,8 @@ def compute_cwt(signal_data):
     fs = signal_data['fs']
 
     wavelet = Wavelet(('gmw', {'beta': 20, 'gamma': 30}), N=len(t))
-    Wx, scales = cwt(x, wavelet=wavelet, scales='log-piecewise', nv=32)
+    scales = load_scales_from_txt()
+    Wx, scales = cwt(x, wavelet=wavelet, scales=scales)
 
     frequencies = 0.1 * fs / scales
     amplitude = np.abs(Wx)

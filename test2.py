@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from ssqueezepy import cwt, Wavelet
 from scipy.signal import hilbert
+from scale_config import load_scales_from_txt
 
 
 # ==================== 1. ГЕНЕРАЦИЯ СИГНАЛА ====================
@@ -20,7 +21,8 @@ def compute_cwt(signal_data):
 
     wavelet = Wavelet(('morlet', {'mu': 2*3.14}), N=len(t))
 
-    Wx, scales = cwt(x, wavelet=wavelet, scales='log-piecewise', nv=32)
+    scales = load_scales_from_txt()
+    Wx, scales = cwt(x, wavelet=wavelet, scales=scales)
 
     frequencies = 0.1 * fs / scales
     return {'Wx': Wx, 'frequencies': frequencies}

@@ -6,6 +6,7 @@ import matplotlib
 from scipy.signal import resample_poly
 
 from audio_io import read_wav
+from scale_config import load_scales_from_txt
 
 
 def _next_pow2(n: int) -> int:
@@ -33,6 +34,7 @@ def compute_cwt(
     max_seconds: float | None = 1.0,
     downsample: int = 1,
     target_fs: int = 192000,
+    scales_path: str | None = None,
 ):
     fs, x = read_wav(file_path, mono=True, normalize=True)
     if target_fs > 0 and fs != int(target_fs):
@@ -47,17 +49,10 @@ def compute_cwt(
         x = x[::downsample]
         fs = int(fs / downsample)
 
-    nyquist_hz = 0.5 * fs
-    if fmax_hz > nyquist_hz:
-        fmax_hz = nyquist_hz
-
-    # Build scales targeting a log-spaced frequency grid.
-    freqs_hz = np.geomspace(fmin_hz, fmax_hz, num=max(8, int(nv * np.log2(fmax_hz / fmin_hz))))
     w0 = 6.0
-    scales = w0 * fs / (2.0 * np.pi * freqs_hz)
-    order = np.argsort(scales)
-    scales = scales[order]
-    freqs_hz = freqs_hz[order]
+    # Scales are controlled from external text config and reused in all CWT calls.
+    scales = load_scales_from_txt(scales_path)
+    freqs_hz = w0 * fs / (2.0 * np.pi * scales)
 
     n = len(x)
     n_fft = _next_pow2(2 * n - 1)
