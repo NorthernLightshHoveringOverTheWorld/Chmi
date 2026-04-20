@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
+from matplotlib.ticker import ScalarFormatter
 from scipy.signal import resample_poly
 
 from audio_io import read_wav
@@ -13,7 +14,7 @@ def _next_pow2(n: int) -> int:
     return 1 if n <= 1 else 1 << (int(n - 1).bit_length())
 
 
-def _morlet_fft(freqs_fft_hz: np.ndarray, scale: float, fs: float, w0: float = 6.0) -> np.ndarray:
+def _morlet_fft(freqs_fft_hz: np.ndarray, scale: float, fs: float, w0: float = 2.0 * np.pi) -> np.ndarray:
     """
     Fourier-domain Morlet (аналитический). Шкала scale согласована с
     scales = w0*fs/(2π f_center) при цифровой частоте ω_d = 2πf/fs (рад/отсчёт).
@@ -28,8 +29,8 @@ def _morlet_fft(freqs_fft_hz: np.ndarray, scale: float, fs: float, w0: float = 6
 def compute_cwt(
     file_path: str,
     *,
-    fmin_hz: float = 500.0,
-    fmax_hz: float = 96000.0,
+    fmin_hz: float = 0.0,
+    fmax_hz: float = 100000.0,
     nv: int = 8,
     max_seconds: float | None = 1.0,
     downsample: int = 1,
@@ -49,10 +50,18 @@ def compute_cwt(
         x = x[::downsample]
         fs = int(fs / downsample)
 
-    w0 = 6.0
+    w0 = 2.0 * np.pi
     # Scales are controlled from external text config and reused in all CWT calls.
     scales = load_scales_from_txt(scales_path)
     freqs_hz = w0 * fs / (2.0 * np.pi * scales)
+    band = (freqs_hz >= float(fmin_hz)) & (freqs_hz <= float(fmax_hz))
+    if not np.any(band):
+        raise ValueError(
+            f"Нет шкал в диапазоне {fmin_hz:.1f}..{fmax_hz:.1f} Гц. "
+            "Проверьте wavelet_scales.txt."
+        )
+    scales = scales[band]
+    freqs_hz = freqs_hz[band]
 
     n = len(x)
     n_fft = _next_pow2(2 * n - 1)
@@ -133,7 +142,7 @@ def plot_cwt_spectrogram(
     freqs_hz: np.ndarray | None = None,
     Wx: np.ndarray | None = None,
     fmin_hz: float = 500.0,
-    fmax_hz: float = 96000.0,
+    fmax_hz: float = 100000.0,
     nv: int = 8,
     max_seconds: float | None = 2.0,
     downsample: int = 1,
@@ -198,7 +207,7 @@ def plot_cwt_scalogram(
     freqs_hz: np.ndarray | None = None,
     Wx: np.ndarray | None = None,
     fmin_hz: float = 500.0,
-    fmax_hz: float = 96000.0,
+    fmax_hz: float = 100000.0,
     nv: int = 8,
     max_seconds: float | None = None,
     downsample: int = 1,
@@ -234,7 +243,14 @@ def plot_cwt_scalogram(
 
     m = ax.pcolormesh(t, freqs_hz, amp, shading="auto")
     if log_freq:
+        pos_freqs = freqs_hz[freqs_hz > 0]
+        if pos_freqs.size == 0:
+            raise ValueError("Для логарифмической шкалы нужны частоты > 0 Гц.")
         ax.set_yscale("log")
+        ax.set_ylim(float(np.min(pos_freqs)), float(np.max(pos_freqs)))
+        # Keep human-readable frequencies on the log axis (avoid scientific notation).
+        ax.yaxis.set_major_formatter(ScalarFormatter())
+        ax.yaxis.set_minor_formatter(ScalarFormatter())
     ax.set_ylabel("Частота (Гц)")
     ax.set_xlabel("Время (с)")
     ax.set_title("Morlet CWT скалограмма |Wx|", fontweight="bold")

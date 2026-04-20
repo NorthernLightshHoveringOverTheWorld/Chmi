@@ -64,7 +64,7 @@ def plot_stft_spectrogram(
     nperseg: int = 4096,
     noverlap: int = 3072,
     fmin_hz: float = 0.0,
-    fmax_hz: float = 96000.0,
+    fmax_hz: float = 100000.0,
     db: bool = True,
 ):
     """

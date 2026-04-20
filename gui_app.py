@@ -95,14 +95,19 @@ class App(tk.Tk):
             ti = int(np.argmin(np.abs(t - event.xdata)))
             t_sel = float(t[ti])
             slice_vals = spec[:, ti]
+            order = np.argsort(freqs_hz)
+            freqs_plot = freqs_hz[order]
+            slice_plot = slice_vals[order]
 
             fig, ax = plt.subplots(figsize=(6, 6))
-            ax.plot(slice_vals, freqs_hz, color="#1f77b4", linewidth=1.5)
+            ax.plot(freqs_plot, slice_plot, color="#1f77b4", linewidth=1.5)
             ax.set_title(f"Боковой срез: t={t_sel:.6f} c\n{title}")
-            ax.set_xlabel(y_label)
-            ax.set_ylabel("Частота (Гц)")
+            ax.set_xlabel("Частота (Гц)")
+            ax.set_ylabel(y_label)
             ax.grid(True, alpha=0.3)
-            ax.set_ylim(freqs_hz[0], freqs_hz[-1])
+            ax.set_xlim(float(freqs_plot[0]), float(freqs_plot[-1]))
+            if title == "Morlet CWT":
+                ax.set_xscale("log")
         else:  # правый: продольный срез Re(Wx) по времени (как test2 / форма Морле для дельты)
             if event.ydata is None:
                 return
@@ -231,7 +236,7 @@ class App(tk.Tk):
                 nperseg=2048,
                 noverlap=1536,
                 fmin_hz=0.0,
-                fmax_hz=96000.0,
+                fmax_hz=100000.0,
                 db=True,
             )
             self.current_spec = {
@@ -253,8 +258,8 @@ class App(tk.Tk):
             self.ax.clear()
             _fs, t, freqs_hz, Wx = compute_cwt(
                 file_path,
-                fmin_hz=100.0,
-                fmax_hz=96000.0,
+                fmin_hz=0.1,
+                fmax_hz=100000.0,
                 max_seconds=None,
                 nv=12,
                 downsample=1,
