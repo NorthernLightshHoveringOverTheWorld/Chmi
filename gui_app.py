@@ -1,4 +1,5 @@
 import os
+import threading
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
@@ -18,10 +19,7 @@ from plot_wavelet_spectrum import (  # noqa: E402
     compute_cwt,
     plot_cwt_scalogram,
     plot_longitudinal_slice_morlet_re,
-    save_cwt,
     save_longitudinal_slice_txt,
-    save_time_frequency_coords,
-    save_time_frequency_coords_csv,
 )
 from txt_to_wav import txt_to_wav  # noqa: E402
 
@@ -66,6 +64,7 @@ class App(tk.Tk):
         self.canvas.mpl_connect("button_press_event", self._on_spectrogram_click)
 
         self.current_spec: dict | None = None
+        self._morlet_busy = False
 
         self._draw_placeholder()
 
@@ -253,21 +252,57 @@ class App(tk.Tk):
             messagebox.showerror("Ошибка FFT", str(e))
 
     def on_morlet(self):
+        if self._morlet_busy:
+            return
         try:
             file_path = self._require_file()
-            self.ax.clear()
-            _fs, t, freqs_hz, Wx = compute_cwt(
-                file_path,
-                fmin_hz=0.1,
-                fmax_hz=100000.0,
-                max_seconds=None,
-                nv=12,
-                downsample=1,
-                target_fs=192000,
-            )
-            amp = np.abs(Wx)
+        except Exception as e:
+            messagebox.showerror("Ошибка Morlet CWT", str(e))
+            return
 
-            target_hz = float(self.ent_target_freq.get().strip().replace(",", "."))
+        self._morlet_busy = True
+        self.config(cursor="watch")
+        self.ax.clear()
+        self.ax.set_title("Morlet CWT: расчёт…")
+        self.ax.set_axis_off()
+        self.canvas.draw_idle()
+        self.update_idletasks()
+
+        target_hz = float(self.ent_target_freq.get().strip().replace(",", "."))
+
+        def worker():
+            try:
+                result = compute_cwt(
+                    file_path,
+                    fmin_hz=0.1,
+                    fmax_hz=100000.0,
+                    max_seconds=None,
+                    nv=12,
+                    downsample=4,
+                    target_fs=192000,
+                )
+                err = None
+            except Exception as e:
+                result = None
+                err = e
+            self.after(0, lambda: self._finish_morlet(file_path, target_hz, result, err))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_morlet(self, file_path: str, target_hz: float, result, err: Exception | None):
+        self._morlet_busy = False
+        self.config(cursor="")
+        if err is not None:
+            self._draw_placeholder()
+            messagebox.showerror("Ошибка Morlet CWT", str(err))
+            return
+
+        _fs, t, freqs_hz, Wx = result
+        amp = np.abs(Wx)
+
+        try:
+            self.ax.clear()
+            self.ax.set_axis_on()
             plot_cwt_scalogram(t=t, freqs_hz=freqs_hz, Wx=Wx, ax=self.ax, show=False, log_freq=True)
             self.ax.axhline(target_hz, color="white", linewidth=1.0, alpha=0.8)
             self.current_spec = {
@@ -280,13 +315,6 @@ class App(tk.Tk):
             }
             self.fig.tight_layout()
             self.canvas.draw_idle()
-
-            stem = Path(file_path).stem
-            save_cwt(t, freqs_hz, Wx, prefix=str(self.project_dir / stem))
-            coords_path = self.project_dir / f"{stem}_tf_coords.txt"
-            save_time_frequency_coords(t, freqs_hz, Wx, path=str(coords_path))
-            coords_csv_path = self.project_dir / f"{stem}_tf_coords.csv"
-            save_time_frequency_coords_csv(t, freqs_hz, Wx, path=str(coords_csv_path))
             self._save_current_figure("morlet_scalogram")
         except Exception as e:
             messagebox.showerror("Ошибка Morlet CWT", str(e))

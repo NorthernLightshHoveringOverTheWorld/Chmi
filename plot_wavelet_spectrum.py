@@ -9,6 +9,9 @@ from scipy.signal import resample_poly
 from audio_io import read_wav
 from scale_config import load_scales_from_txt
 
+# Пакетный Morlet CWT: меньше Python-циклов, один ifft на группу шкал.
+_DEFAULT_CWT_CHUNK = 8
+
 
 def _next_pow2(n: int) -> int:
     return 1 if n <= 1 else 1 << (int(n - 1).bit_length())
@@ -26,6 +29,33 @@ def _morlet_fft(freqs_fft_hz: np.ndarray, scale: float, fs: float, w0: float = 2
     return psi_hat
 
 
+def _cwt_fft_bank(
+    X: np.ndarray,
+    scales: np.ndarray,
+    f_fft: np.ndarray,
+    fs: float,
+    n: int,
+    *,
+    w0: float = 2.0 * np.pi,
+    chunk_size: int = _DEFAULT_CWT_CHUNK,
+) -> np.ndarray:
+    """CWT в частотной области: группы шкал, общий спектр сигнала X."""
+    scales = np.asarray(scales, dtype=np.float64)
+    omega_d = 2.0 * np.pi * f_fft / float(fs)
+    neg = f_fft < 0
+    Wx = np.empty((scales.size, n), dtype=np.complex64)
+    step = max(1, int(chunk_size))
+    for c0 in range(0, scales.size, step):
+        sc = scales[c0 : c0 + step]
+        s_col = sc[:, np.newaxis]
+        psi_hat = np.exp(-0.5 * ((s_col * omega_d - w0) ** 2), dtype=np.float64)
+        np.multiply(psi_hat, np.sqrt(s_col), out=psi_hat)
+        psi_hat[:, neg] = 0.0
+        conv = np.fft.ifft(X * np.conj(psi_hat), axis=1)
+        Wx[c0 : c0 + sc.size, :] = conv[:, :n]
+    return Wx
+
+
 def compute_cwt(
     file_path: str,
     *,
@@ -33,9 +63,11 @@ def compute_cwt(
     fmax_hz: float = 100000.0,
     nv: int = 8,
     max_seconds: float | None = 1.0,
-    downsample: int = 1,
+    downsample: int = 4,
     target_fs: int = 192000,
     scales_path: str | None = None,
+    scale_stride: int = 1,
+    cwt_chunk_size: int = _DEFAULT_CWT_CHUNK,
 ):
     fs, x = read_wav(file_path, mono=True, normalize=True)
     if target_fs > 0 and fs != int(target_fs):
@@ -53,6 +85,9 @@ def compute_cwt(
     w0 = 2.0 * np.pi
     # Scales are controlled from external text config and reused in all CWT calls.
     scales = load_scales_from_txt(scales_path)
+    stride = max(1, int(scale_stride))
+    if stride > 1:
+        scales = scales[::stride]
     freqs_hz = w0 * fs / (2.0 * np.pi * scales)
     band = (freqs_hz >= float(fmin_hz)) & (freqs_hz <= float(fmax_hz))
     if not np.any(band):
@@ -65,14 +100,18 @@ def compute_cwt(
 
     n = len(x)
     n_fft = _next_pow2(2 * n - 1)
-    X = np.fft.fft(x, n=n_fft)
+    X = np.fft.fft(x.astype(np.float32, copy=False), n=n_fft)
     f_fft = np.fft.fftfreq(n_fft, d=1.0 / fs)
 
-    Wx = np.empty((len(scales), n), dtype=np.complex64)
-    for i, s in enumerate(scales):
-        psi_hat = _morlet_fft(f_fft, s, fs=float(fs), w0=w0)
-        conv = np.fft.ifft(X * np.conj(psi_hat))
-        Wx[i, :] = conv[:n]
+    Wx = _cwt_fft_bank(
+        X,
+        scales,
+        f_fft,
+        fs=float(fs),
+        n=n,
+        w0=w0,
+        chunk_size=cwt_chunk_size,
+    )
 
     t = np.arange(len(x)) / fs
     return fs, t, freqs_hz, Wx
@@ -95,11 +134,13 @@ def save_cwt(
     Wx: np.ndarray,
     *,
     prefix: str = "cwt",
+    save_csv: bool = False,
 ):
     np.save(f"{prefix}_t.npy", t)
     np.save(f"{prefix}_freqs_hz.npy", freqs_hz)
     np.save(f"{prefix}_Wx.npy", Wx)
-    np.savetxt(f"{prefix}_amp.csv", np.abs(Wx), delimiter=",")
+    if save_csv:
+        np.savetxt(f"{prefix}_amp.csv", np.abs(Wx), delimiter=",")
 
 
 def save_time_frequency_coords(
